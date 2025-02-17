@@ -1,0 +1,94 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import java.io.*;
+import java.util.*;
+
+public class ExcelProcessor {
+    public static void main(String[] args) {
+        String inputFolder = "src/input_files/"; // Folder where input file is placed
+        String outputFilePath1 = "src/output_files/MCAID.xlsx";  // File 1 (Non Fac Fee)
+        String outputFilePath2 = "src/output_files/MCAIDFAC.xlsx"; // File 2 (Fac Fee)
+        String outputFilePath3 = "src/output_files/MCAIDMAN.xlsx"; // File 3 (Manual Rates)
+        String outputFilePath4 = "src/output_files/MCAIDU21.xlsx"; // File 4 (Under 21)
+        String comparisonReportPath = "src/output_files/MCAID_Comparison.xlsx"; // Comparison Report
+
+        try {
+            File folder = new File(inputFolder);
+            File[] files = folder.listFiles((dir, name) -> name.toLowerCase().endsWith(".xlsx"));
+
+            if (files == null || files.length < 2) {
+                System.out.println("At least two Excel files are required for comparison.");
+                return;
+            }
+
+            File fileQ1 = files[0]; // MCAID_Q1.xlsx
+            File fileQ2 = files[1]; // MCAID_Q2.xlsx
+
+            List<List<String>> comparisonReport = compareExcelFiles(fileQ1, fileQ2);
+            writeFilteredDataToExcel(comparisonReport, comparisonReportPath);
+            System.out.println("Comparison report saved to: " + comparisonReportPath);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static List<List<String>> compareExcelFiles(File file1, File file2) throws IOException {
+        FileInputStream fis1 = new FileInputStream(file1);
+        FileInputStream fis2 = new FileInputStream(file2);
+        Workbook workbook1 = new XSSFWorkbook(fis1);
+        Workbook workbook2 = new XSSFWorkbook(fis2);
+
+        Sheet sheet1 = workbook1.getSheetAt(0);
+        Sheet sheet2 = workbook2.getSheetAt(0);
+
+        Set<String> dataQ1 = extractDataFromSheet(sheet1);
+        Set<String> dataQ2 = extractDataFromSheet(sheet2);
+
+        List<List<String>> differences = new ArrayList<>();
+        differences.add(Arrays.asList("Difference Type", "Data"));
+
+        for (String record : dataQ1) {
+            if (!dataQ2.contains(record)) {
+                differences.add(Arrays.asList("Exists in MCAID_Q1 but not in MCAID_Q2", record));
+            }
+        }
+
+        for (String record : dataQ2) {
+            if (!dataQ1.contains(record)) {
+                differences.add(Arrays.asList("Exists in MCAID_Q2 but not in MCAID_Q1", record));
+            }
+        }
+
+        workbook1.close();
+        workbook2.close();
+        fis1.close();
+        fis2.close();
+
+        return differences;
+    }
+
+    private static Set<String> extractDataFromSheet(Sheet sheet) {
+        Set<String> data = new HashSet<>();
+        for (int i = 1; i <= sheet.getLastRowNum(); i++) { // Skip header row
+            Row row = sheet.getRow(i);
+            if (row == null) continue;
+            StringBuilder rowData = new StringBuilder();
+            for (Cell cell : row) {
+                rowData.append(getCellValue(cell)).append("|"); // Concatenate cell values to form a unique key
+            }
+            data.add(rowData.toString());
+        }
+        return data;
+    }
+
+    private static String getCellValue(Cell cell) {
+        if (cell == null) return "";
+        switch (cell.getCellType()) {
+            case STRING: return cell.getStringCellValue().trim();
+            case NUMERIC: return String.valueOf(cell.getNumericCellValue());
+            case BOOLEAN: return String.valueOf(cell.getBooleanCellValue());
+            case FORMULA: return cell.getCellFormula();
+            default: return "";
+        }
+    }
+}
