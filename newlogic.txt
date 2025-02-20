@@ -1,0 +1,123 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.text.SimpleDateFormat;
+import java.util.*;
+
+public class ExcelProcessor {
+
+    private static final String[] REQUIRED_HEADERS = {
+            "SCH_NAME", "ProcedureCode", "Mod1", "Mod2", "Mod3", "Mod4",
+            "Effective Date", "End Date", "Pricing Method", "New Rate", "OldRate", "Comments"
+    };
+
+    public static void main(String[] args) {
+        String inputFilePath = "src/main/resources/ChangeFileRPAFormat.xlsx";
+        String outputFilePath = "src/main/resources/Processed_Output.xlsx";
+
+        processExcelFile(inputFilePath, outputFilePath);
+        System.out.println("Processing complete. Output saved at: " + outputFilePath);
+    }
+
+    public static void processExcelFile(String inputPath, String outputPath) {
+        try (FileInputStream fis = new FileInputStream(inputPath);
+             Workbook workbook = new XSSFWorkbook(fis);
+             Workbook outputWorkbook = new XSSFWorkbook()) {
+
+            Sheet inputSheet = workbook.getSheetAt(0);
+            Sheet outputSheet = outputWorkbook.createSheet("Processed Data");
+
+            Map<String, Integer> headerIndexMap = getHeaderIndexMap(inputSheet.getRow(0));
+
+            if (!headerIndexMap.keySet().containsAll(Arrays.asList(REQUIRED_HEADERS))) {
+                System.out.println("Error: Required columns are missing in the input file.");
+                return;
+            }
+
+            // Create the header row in the output file
+            Row headerRow = outputSheet.createRow(0);
+            for (int i = 0; i < REQUIRED_HEADERS.length; i++) {
+                headerRow.createCell(i).setCellValue(REQUIRED_HEADERS[i]);
+            }
+
+            int rowNum = 1;
+            SimpleDateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy");
+
+            for (Row row : inputSheet) {
+                if (row.getRowNum() == 0 || isRowEmpty(row, headerIndexMap)) continue; // Skip header and empty rows
+
+                Row newRow = outputSheet.createRow(rowNum++);
+                for (int i = 0; i < REQUIRED_HEADERS.length; i++) {
+                    String columnName = REQUIRED_HEADERS[i];
+                    int colIndex = headerIndexMap.get(columnName);
+                    Cell cell = row.getCell(colIndex, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                    Cell newCell = newRow.createCell(i);
+
+                    switch (columnName) {
+                        case "Effective Date", "End Date":
+                            if (cell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
+                                newCell.setCellValue(dateFormat.format(cell.getDateCellValue()));
+                            } else {
+                                newCell.setCellValue(cell.toString().strip());
+                            }
+                            break;
+                        case "New Rate", "OldRate":
+                            String rateValue = cell.toString().strip();
+                            if (rateValue.equalsIgnoreCase("N/A")) {
+                                newCell.setCellValue("N/A");
+                            } else {
+                                try {
+                                    double value = Double.parseDouble(rateValue);
+                                    newCell.setCellValue(String.format("$%.4f", value));
+                                } catch (NumberFormatException e) {
+                                    newCell.setCellValue(rateValue); // Retain original text if conversion fails
+                                }
+                            }
+                            break;
+                        case "Mod1", "Mod2", "Mod3", "Mod4":
+                            String modValue = cell.toString().strip();
+                            newCell.setCellValue(modValue.isEmpty() ? "" : modValue);
+                            break;
+                        case "ProcedureCode":
+                        case "SCH_NAME":
+                            if (cell.getCellType() == CellType.NUMERIC) {
+                                newCell.setCellValue(String.valueOf((long) cell.getNumericCellValue())); // Convert numeric to plain integer
+                            } else {
+                                newCell.setCellValue(cell.toString().strip());
+                            }
+                            break;
+                        default:
+                            newCell.setCellValue(cell.toString().strip());
+                            break;
+                    }
+                }
+            }
+
+            try (FileOutputStream fos = new FileOutputStream(outputPath)) {
+                outputWorkbook.write(fos);
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static Map<String, Integer> getHeaderIndexMap(Row headerRow) {
+        Map<String, Integer> headerMap = new HashMap<>();
+        for (Cell cell : headerRow) {
+            String headerName = cell.getStringCellValue().strip();
+            headerMap.put(headerName, cell.getColumnIndex());
+        }
+        return headerMap;
+    }
+
+    /**
+     * Checks if a row is completely empty (all cells are blank).
+     */
+    private static boolean isRowEmpty(Row row, Map<String, Integer> headerIndexMap) {
+        return headerIndexMap.values().stream()
+                .map(row::getCell)
+                .allMatch(cell -> cell == null || cell.toString().trim().isEmpty());
+    }
+}
