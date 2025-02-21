@@ -1,0 +1,66 @@
+// Generate a unique ID for each new tab/window
+if (!sessionStorage.getItem('windowId')) {
+  sessionStorage.setItem('windowId', crypto.randomUUID());
+}
+const windowId = sessionStorage.getItem('windowId');
+
+
+function startTask() {
+  fetch(`/start-task?windowId=${windowId}`, { method: 'POST' })
+    .then(response => response.json())
+    .then(data => {
+      console.log('Task Started');
+    });
+}
+
+function checkProgress() {
+  fetch(`/progress?windowId=${windowId}`)
+    .then(response => response.json())
+    .then(progress => {
+      updateProgressBar(progress);
+    });
+}
+
+
+import org.springframework.web.bind.annotation.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+@RestController
+public class TaskController {
+
+    private final ConcurrentHashMap<String, Integer> progressMap = new ConcurrentHashMap<>();
+
+    @PostMapping("/start-task")
+    public String startTask(@RequestParam String windowId) {
+        // Start the task asynchronously and update progress
+        new Thread(() -> {
+            for (int i = 0; i <= 100; i++) {
+                try {
+                    Thread.sleep(100); // Simulating task
+                    progressMap.put(windowId, i);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
+
+        return "Task Started";
+    }
+
+    @GetMapping("/progress")
+    public int getProgress(@RequestParam String windowId) {
+        return progressMap.getOrDefault(windowId, 0);
+    }
+}
+
+
+function updateProgressBar(progress) {
+  const progressBar = document.getElementById('progressBar');
+  progressBar.value = progress;
+  if (progress < 100) {
+    setTimeout(checkProgress, 1000); // Poll every second
+  } else {
+    alert('Task completed!');
+  }
+}
+
