@@ -1,0 +1,183 @@
+<!-- Popup Modal for User Input -->
+<div id="folderModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3>Select Details for Folder Creation</h3>
+        <label for="yearSelect">Year:</label>
+        <select id="yearSelect">
+            <option value="2022">2022</option>
+            <option value="2023">2023</option>
+            <option value="2024">2024</option>
+            <option value="2025">2025</option>
+        </select>
+
+        <label for="lobSelect">LOB:</label>
+        <select id="lobSelect">
+            <option value="LOB1">LOB1</option>
+            <option value="LOB2">LOB2</option>
+            <option value="LOB3">LOB3</option>
+        </select>
+
+        <button id="confirmCreateButton">Create Folder</button>
+        <button id="cancelButton">Cancel</button>
+    </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const searchButton = document.getElementById("searchButton");
+    const searchInput = document.getElementById("searchInput");
+    const resultsTable = document.getElementById("resultsTable");
+    const resultsBody = document.getElementById("resultsBody");
+    const message = document.getElementById("message");
+    const folderModal = document.getElementById("folderModal");
+    const confirmCreateButton = document.getElementById("confirmCreateButton");
+    const cancelButton = document.getElementById("cancelButton");
+
+    let selectedFolderName = ""; // Store folder name for use in modal
+
+    // Event Listener for Search Button
+    searchButton.addEventListener("click", function () {
+        const folderName = searchInput.value.trim();
+        if (!folderName) {
+            message.textContent = "Please enter a TFS # to begin search.";
+            resultsTable.style.display = "none";
+            return;
+        }
+
+        // Clear previous results
+        message.textContent = "";
+        resultsBody.innerHTML = "";
+
+        // Send Request to Backend
+        fetch(`/checkFolder?folderName=${folderName}`)
+            .then(response => {
+                if (!response.ok) throw new Error("Folder check failed.");
+                return response.json();
+            })
+            .then(data => {
+                resultsTable.style.display = "table";
+                const row = document.createElement("tr");
+
+                const tfsCell = document.createElement("td");
+                tfsCell.innerHTML = `<a href="/openRGStory?storyNumber=${folderName}">${folderName}</a>`;
+                row.appendChild(tfsCell);
+
+                const actionCell = document.createElement("td");
+
+                if (data.exists) {
+                    actionCell.innerHTML = "<button class='add-button' disabled>Exists</button>";
+                } else {
+                    const addButton = document.createElement("button");
+                    addButton.className = "add-button";
+                    addButton.textContent = "Add";
+                    addButton.addEventListener("click", function () {
+                        selectedFolderName = folderName; // Store folder name for modal use
+                        folderModal.style.display = "block"; // Show the modal
+                    });
+                    actionCell.appendChild(addButton);
+                }
+
+                row.appendChild(actionCell);
+                resultsBody.appendChild(row);
+            })
+            .catch(error => {
+                console.error(error);
+                message.textContent = "Error occurred while searching.";
+                resultsTable.style.display = "none";
+            });
+    });
+
+    // Confirm Create Folder Button Click
+    confirmCreateButton.addEventListener("click", function () {
+        const selectedYear = document.getElementById("yearSelect").value;
+        const selectedLOB = document.getElementById("lobSelect").value;
+
+        fetch(`/createFolder?folderName=${selectedFolderName}&year=${selectedYear}&lob=${selectedLOB}`, { method: "POST" })
+            .then(response => {
+                if (!response.ok) throw new Error("Folder creation failed.");
+                return response.text();
+            })
+            .then(() => {
+                alert("Folder created successfully!");
+                folderModal.style.display = "none"; // Close the modal
+                location.reload(); // Refresh the page to update the folder status
+            })
+            .catch(error => {
+                console.error(error);
+                alert("Failed to create folder.");
+            });
+    });
+
+    // Cancel Button Click
+    cancelButton.addEventListener("click", function () {
+        folderModal.style.display = "none"; // Close the modal
+    });
+});
+</script>
+
+<style>
+/* Modal Styling */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 50%;
+    top: 50%;
+    width: 300px;
+    background-color: white;
+    padding: 20px;
+    border-radius: 10px;
+    transform: translate(-50%, -50%);
+    box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.2);
+}
+
+.modal-content {
+    text-align: center;
+}
+
+button {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border: none;
+    cursor: pointer;
+}
+
+#confirmCreateButton {
+    background-color: green;
+    color: white;
+}
+
+#cancelButton {
+    background-color: red;
+    color: white;
+}
+</style>
+
+
+
+@RestController
+public class FolderController {
+
+    private static final String SHARE_FOLDER_PATH = "C:/Users/Reports/";
+
+    @PostMapping("/createFolder")
+    public ResponseEntity<String> createFolder(@RequestParam String folderName, @RequestParam String year, @RequestParam String lob) {
+        String folderPath = SHARE_FOLDER_PATH + year + "/" + lob + "/" + folderName;
+        File folder = new File(folderPath);
+
+        if (!folder.exists()) {
+            boolean created = folder.mkdirs();
+            if (!created) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to create folder");
+            }
+        }
+
+        return ResponseEntity.ok("Folder created successfully at: " + folderPath);
+    }
+}
+
+
+
+
+
+
