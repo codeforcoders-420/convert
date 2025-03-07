@@ -1,0 +1,127 @@
+package com.example.demo.controller;
+
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.web.bind.annotation.*;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.text.SimpleDateFormat;
+import java.util.*;
+
+@RestController
+@RequestMapping("/api")
+@CrossOrigin(origins = "*") // Enable cross-origin access
+public class ExcelController {
+
+    private static final String EXCEL_FILE_PATH = "C:/path/to/TFS Summary.xlsx"; // Update path
+
+    @GetMapping("/stories-due-today")
+    public List<String> getStoriesDueToday() {
+        List<String> storiesDueToday = new ArrayList<>();
+        Date today = new Date();
+        SimpleDateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy"); // Adjust format as per Excel
+        String todayStr = dateFormat.format(today);
+
+        try (FileInputStream fis = new FileInputStream(new File(EXCEL_FILE_PATH));
+             Workbook workbook = new XSSFWorkbook(fis)) {
+
+            Sheet sheet = workbook.getSheetAt(0); // Assuming first sheet
+            int td2ColumnIndex = -1;
+            int titleColumnIndex = -1;
+
+            // Read the first row (Header) to get column indexes
+            Row headerRow = sheet.getRow(0);
+            for (Cell cell : headerRow) {
+                if (cell.getStringCellValue().equalsIgnoreCase("TD2 Date")) {
+                    td2ColumnIndex = cell.getColumnIndex();
+                } else if (cell.getStringCellValue().equalsIgnoreCase("Title")) {
+                    titleColumnIndex = cell.getColumnIndex();
+                }
+            }
+
+            // Validate if columns exist
+            if (td2ColumnIndex == -1 || titleColumnIndex == -1) {
+                throw new IllegalArgumentException("TD2 Date or Title column not found!");
+            }
+
+            // Read data from the second row onward
+            for (Row row : sheet) {
+                if (row.getRowNum() == 0) continue; // Skip header row
+
+                Cell td2DateCell = row.getCell(td2ColumnIndex);
+                Cell titleCell = row.getCell(titleColumnIndex);
+
+                if (td2DateCell != null && titleCell != null) {
+                    String cellDate = new SimpleDateFormat("MM/dd/yyyy").format(td2DateCell.getDateCellValue());
+                    if (cellDate.equals(todayStr)) {
+                        storiesDueToday.add(titleCell.getStringCellValue());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return storiesDueToday;
+    }
+}
+
+
+
+<div id="stories-due-section" class="stories-frame" style="display:none;">
+    <h3>Stories are due to deploy today</h3>
+    <ul id="stories-list"></ul>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    fetch("http://localhost:8080/api/stories-due-today") // Update with actual backend URL
+        .then(response => response.json())
+        .then(data => {
+            const storiesSection = document.getElementById("stories-due-section");
+            const storiesList = document.getElementById("stories-list");
+
+            if (data.length > 0) {
+                storiesList.innerHTML = ""; // Clear existing list
+                data.forEach(title => {
+                    let listItem = document.createElement("li");
+                    listItem.textContent = title;
+                    storiesList.appendChild(listItem);
+                });
+                storiesSection.style.display = "block"; // Show the section
+            }
+        })
+        .catch(error => console.error("Error fetching stories:", error));
+});
+</script>
+
+
+.stories-frame {
+    border: 2px solid #007bff;
+    background-color: #f8f9fa;
+    padding: 15px;
+    margin: 20px 0;
+    border-radius: 5px;
+    box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.stories-frame h3 {
+    color: #007bff;
+    text-align: center;
+}
+
+#stories-list {
+    list-style-type: none;
+    padding: 0;
+}
+
+#stories-list li {
+    padding: 8px;
+    border-bottom: 1px solid #ddd;
+}
+
+#stories-list li:last-child {
+    border-bottom: none;
+}
+
+
