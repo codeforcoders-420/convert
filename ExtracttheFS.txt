@@ -1,0 +1,162 @@
+package exceltemplate.convert;
+
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.stream.*;
+import java.util.Scanner;
+import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+
+public class ExcelFilter {
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        
+        // Get user inputs
+        System.out.print("Enter the first sheet name: ");
+        String sheetName1 = scanner.nextLine().trim();
+        
+        System.out.print("Enter the Rate Type filter value: ");
+        String rateTypeFilter = scanner.nextLine().trim();
+        
+        String folderPath = "C:\\Users\\rajas\\Desktop\\SourcefiletoFS\\Input"; // Folder location for input files
+        File folder = new File(folderPath);
+        File[] files = folder.listFiles((dir, name) -> name.toLowerCase().endsWith(".xlsx"));
+        
+        if (files == null || files.length == 0) {
+            System.out.println("No Excel files found in the folder!");
+            return;
+        }
+        
+        String inputFile = files[0].getAbsolutePath(); // Picks the first Excel file in the folder
+        String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+        String outputFile = "C:\\Users\\rajas\\Desktop\\SourcefiletoFS\\Output\\Filtered_MEDSURG_JAN_2025_" + timestamp + ".xlsx";
+        
+        try (FileInputStream fis = new FileInputStream(inputFile);
+             Workbook workbook = new XSSFWorkbook(fis)) {
+            
+            Sheet sheet1 = workbook.getSheet(sheetName1);
+            if (sheet1 == null) {
+                System.out.println("First sheet not found!");
+                return;
+            }
+
+            // Identify header row
+            int headerRowNum = 20; // Adjust based on actual data structure
+            Row headerRow1 = sheet1.getRow(headerRowNum);
+            
+            // Create a mapping of column indexes for required fields
+            Map<String, Integer> columnIndexMap1 = getColumnIndexes(headerRow1);
+            if (columnIndexMap1.isEmpty()) {
+                System.out.println("Column headers not found in first sheet!");
+                return;
+            }
+
+            // Filter rows where 'Rate Type' matches user input
+            List<Row> filteredRows = StreamSupport.stream(sheet1.spliterator(), false)
+                    .skip(headerRowNum + 1)
+                    .filter(row -> {
+                        Integer rateTypeIndex = columnIndexMap1.get("Rate Type");
+                        if (rateTypeIndex == null) return false;
+                        Cell rateTypeCell = row.getCell(rateTypeIndex, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                        return rateTypeFilter.equalsIgnoreCase(rateTypeCell.getStringCellValue().trim());
+                    })
+                    .toList();
+            
+            // Ask user if they want to add another sheet
+            System.out.print("Do you want to add data from another sheet? (yes/no): ");
+            String addSheetChoice = scanner.nextLine().trim();
+            List<Row> additionalRows = new ArrayList<>();
+            
+            if (addSheetChoice.equalsIgnoreCase("yes")) {
+                System.out.print("Enter the second sheet name: ");
+                String sheetName2 = scanner.nextLine().trim();
+                
+                Sheet sheet2 = workbook.getSheet(sheetName2);
+                if (sheet2 != null) {
+                    int headerRowNum2 = 0; // Adjust based on actual structure
+                    Row headerRow2 = sheet2.getRow(headerRowNum2);
+                    Map<String, Integer> columnIndexMap2 = getColumnIndexesForSecondSheet(headerRow2);
+                    
+                    additionalRows = StreamSupport.stream(sheet2.spliterator(), false)
+                            .skip(headerRowNum2 + 1)
+                            .filter(row -> {
+                                Integer prcngIndex = columnIndexMap2.get("Prcng Ind");
+                                Integer rateTypeIndex = columnIndexMap2.get("Rate Type");
+                                if (prcngIndex == null || rateTypeIndex == null) return false;
+                                
+                                Cell prcngCell = row.getCell(prcngIndex, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                                Cell rateTypeCell = row.getCell(rateTypeIndex, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                                return "SYSMAN".equalsIgnoreCase(prcngCell.getStringCellValue().trim()) && "DEF".equalsIgnoreCase(rateTypeCell.getStringCellValue().trim());
+                            })
+                            .toList();
+                } else {
+                    System.out.println("Second sheet not found!");
+                }
+            }
+            
+            // Write filtered data to new Excel workbook
+            writeFilteredData(filteredRows, additionalRows, columnIndexMap1, outputFile);
+            System.out.println("Filtered data written to " + outputFile);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private static Map<String, Integer> getColumnIndexes(Row headerRow) {
+        Map<String, Integer> columnIndexMap = new HashMap<>();
+        for (Cell cell : headerRow) {
+            columnIndexMap.put(cell.getStringCellValue().trim(), cell.getColumnIndex());
+        }
+        return columnIndexMap;
+    }
+    
+    private static Map<String, Integer> getColumnIndexesForSecondSheet(Row headerRow) {
+        return getColumnIndexes(headerRow);
+    }
+    
+    private static void writeRowData(Sheet sheet, int rowNum, Row row, Map<String, Integer> columnIndexMap) {
+        Row newRow = sheet.createRow(rowNum);
+        List<String> outputColumns = List.of("Code", "Modifier", "Modifier 2", "Modifier 3", "Modifier 4", "Begin Date", "End Date", "Fee");
+        
+        for (int i = 0; i < outputColumns.size(); i++) {
+            Integer colIndex = columnIndexMap.get(outputColumns.get(i));
+            if (colIndex == null) {
+                newRow.createCell(i).setCellValue(""); // Handle missing columns gracefully
+                continue;
+            }
+            Cell cell = row.getCell(colIndex, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+            newRow.createCell(i).setCellValue(cell.toString());
+        }
+    }
+    
+    private static void writeFilteredData(List<Row> rows1, List<Row> rows2, Map<String, Integer> columnIndexMap, String outputFile) {
+        try (Workbook workbook = new XSSFWorkbook(); FileOutputStream fos = new FileOutputStream(outputFile)) {
+            Sheet sheet = workbook.createSheet("Filtered Data");
+            
+            // Create header row
+            Row headerRow = sheet.createRow(0);
+            List<String> outputColumns = List.of("Code", "Modifier", "Modifier 2", "Modifier 3", "Modifier 4", "Begin Date", "End Date", "Fee");
+            
+            for (int i = 0; i < outputColumns.size(); i++) {
+                Cell cell = headerRow.createCell(i);
+                cell.setCellValue(outputColumns.get(i));
+            }
+            
+            int rowNum = 1;
+            for (Row row : rows1) {
+                writeRowData(sheet, rowNum++, row, columnIndexMap);
+            }
+            for (Row row : rows2) {
+                writeRowData(sheet, rowNum++, row, columnIndexMap);
+            }
+            
+            workbook.write(fos);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
