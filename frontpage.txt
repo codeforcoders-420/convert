@@ -1,0 +1,213 @@
+<!-- Layover Modal -->
+<div id="layover-modal" class="modal">
+    <div class="modal-content">
+        <h2>Select Fee Schedule and Environment</h2>
+
+        <label for="feeScheduleDropdown">Fee Schedule:</label>
+        <select id="feeScheduleDropdown" multiple>
+            <!-- Options will be populated dynamically -->
+        </select>
+
+        <label for="envDropdown">Environment:</label>
+        <select id="envDropdown" multiple>
+            <option value="SIT">SIT</option>
+            <option value="UAT">UAT</option>
+            <option value="PROD">PROD</option>
+        </select>
+
+        <button id="processBtn">Generate Report</button>
+    </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const modal = document.getElementById("layover-modal");
+    const processBtn = document.getElementById("processBtn");
+
+    // Fetch Fee Schedules from Backend
+    fetch("/api/getFeeSchedules")
+        .then(response => response.json())
+        .then(data => {
+            const dropdown = document.getElementById("feeScheduleDropdown");
+            dropdown.innerHTML = "";
+            data.forEach(schedule => {
+                let option = document.createElement("option");
+                option.value = schedule;
+                option.textContent = schedule;
+                dropdown.appendChild(option);
+            });
+        });
+
+    // Check if files exist in the backup folder
+    fetch(`/api/checkBackupFiles?storyNumber=123456`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.exists) {
+                modal.style.display = "block"; // Show the modal if no files are found
+            }
+        });
+
+    // Handle button click
+    processBtn.addEventListener("click", function () {
+        const selectedFeeSchedules = Array.from(document.getElementById("feeScheduleDropdown").selectedOptions).map(opt => opt.value);
+        const selectedEnvs = Array.from(document.getElementById("envDropdown").selectedOptions).map(opt => opt.value);
+
+        if (selectedFeeSchedules.length === 0 || selectedEnvs.length === 0) {
+            alert("Please select at least one Fee Schedule and one Environment.");
+            return;
+        }
+
+        // Disable button to prevent multiple submissions
+        processBtn.disabled = true;
+        processBtn.textContent = "Processing...";
+
+        fetch("/api/processReport", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ feeSchedules: selectedFeeSchedules, environments: selectedEnvs, storyNumber: "123456" })
+        }).then(response => response.json()).then(data => {
+            if (data.success) {
+                alert("Report generated successfully!");
+                modal.style.display = "none";
+            } else {
+                alert("Error generating report.");
+            }
+            processBtn.disabled = false;
+            processBtn.textContent = "Generate Report";
+        });
+    });
+});
+</script>
+
+<style>
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+}
+.modal-content {
+    background-color: white;
+    margin: 15% auto;
+    padding: 20px;
+    width: 50%;
+    text-align: center;
+}
+</style>
+
+****************************
+
+@RestController
+@RequestMapping("/api")
+public class ReportController {
+
+    private static final String BACKUP_FOLDER_PATH = "C:/users/tfs123456/Backup";
+
+    @Autowired
+    private ReportService reportService;
+
+    @GetMapping("/getFeeSchedules")
+    public ResponseEntity<List<String>> getFeeSchedules() {
+        List<String> feeSchedules = reportService.getFeeSchedules();
+        return ResponseEntity.ok(feeSchedules);
+    }
+
+    @GetMapping("/checkBackupFiles")
+    public ResponseEntity<Map<String, Boolean>> checkBackupFiles(@RequestParam String storyNumber) {
+        File folder = new File(BACKUP_FOLDER_PATH);
+        boolean exists = folder.exists() && folder.list().length > 0;
+        Map<String, Boolean> response = new HashMap<>();
+        response.put("exists", exists);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/processReport")
+    public ResponseEntity<Map<String, Boolean>> processReport(@RequestBody ReportRequest request) {
+        boolean success = reportService.generateReport(request.getFeeSchedules(), request.getEnvironments(), request.getStoryNumber());
+        Map<String, Boolean> response = new HashMap<>();
+        response.put("success", success);
+        return ResponseEntity.ok(response);
+    }
+}
+
+********************************************
+@Service
+public class ReportService {
+
+    private static final String QUERY_OUTPUT_PATH = "C:/users/tfs123456/Backup/";
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    public List<String> getFeeSchedules() {
+        String sql = "SELECT Fee_SCH_Name FROM feescheduletable";
+        return jdbcTemplate.queryForList(sql, String.class);
+    }
+
+    public boolean generateReport(List<String> feeSchedules, List<String> environments, String storyNumber) {
+        try {
+            for (String feeSchedule : feeSchedules) {
+                for (String env : environments) {
+                    String query = "SELECT * FROM fee_data WHERE Fee_SCH_Name = ? AND Environment = ?";
+                    List<Map<String, Object>> results = jdbcTemplate.queryForList(query, feeSchedule, env);
+
+                    if (!results.isEmpty()) {
+                        saveResultsToExcel(results, feeSchedule, env, storyNumber);
+                    }
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    private void saveResultsToExcel(List<Map<String, Object>> data, String feeSchedule, String env, String storyNumber) throws IOException {
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("Results");
+
+        Row headerRow = sheet.createRow(0);
+        int colNum = 0;
+        for (String key : data.get(0).keySet()) {
+            headerRow.createCell(colNum++).setCellValue(key);
+        }
+
+        int rowNum = 1;
+        for (Map<String, Object> row : data) {
+            Row excelRow = sheet.createRow(rowNum++);
+            colNum = 0;
+            for (Object value : row.values()) {
+                excelRow.createCell(colNum++).setCellValue(value.toString());
+            }
+        }
+
+        File dir = new File(QUERY_OUTPUT_PATH);
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+
+        String filePath = QUERY_OUTPUT_PATH + storyNumber + "_" + feeSchedule + "_" + env + ".xlsx";
+        try (FileOutputStream fos = new FileOutputStream(filePath)) {
+            workbook.write(fos);
+        }
+        workbook.close();
+    }
+}
+
+****************************************
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class ReportRequest {
+    private List<String> feeSchedules;
+    private List<String> environments;
+    private String storyNumber;
+}
+
+
