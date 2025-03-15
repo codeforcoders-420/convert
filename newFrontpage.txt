@@ -1,0 +1,114 @@
+<!-- Layover Modal -->
+<div id="layover-modal" class="modal">
+    <div class="modal-content">
+        <h2>Select Fee Schedule and Environment</h2>
+
+        <!-- Fee Schedule Selection -->
+        <label for="feeScheduleDropdown">Fee Schedule:</label>
+        <div class="chips-container" id="feeScheduleContainer">
+            <select id="feeScheduleDropdown" multiple>
+                <!-- Options will be dynamically populated -->
+            </select>
+        </div>
+
+        <!-- Environment Selection -->
+        <label for="envDropdown">Environment:</label>
+        <div class="chips-container" id="envContainer">
+            <select id="envDropdown" multiple>
+                <option value="SIT">SIT</option>
+                <option value="UAT">UAT</option>
+                <option value="PROD">PROD</option>
+            </select>
+        </div>
+
+        <button id="processBtn">Generate Report</button>
+    </div>
+</div>
+
+<!-- CSS for Multi-Select with Chips -->
+<style>
+    .chips-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        border: 1px solid #ccc;
+        padding: 5px;
+        border-radius: 5px;
+        min-height: 40px;
+        align-items: center;
+    }
+    .chip {
+        display: flex;
+        align-items: center;
+        background: #e0e0e0;
+        border-radius: 16px;
+        padding: 5px 10px;
+    }
+    .chip span {
+        margin-right: 5px;
+    }
+    .chip button {
+        background: transparent;
+        border: none;
+        cursor: pointer;
+    }
+</style>
+
+<!-- JavaScript for Multi-Select with Chips -->
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const feeScheduleDropdown = document.getElementById("feeScheduleDropdown");
+        const feeScheduleContainer = document.getElementById("feeScheduleContainer");
+        const envDropdown = document.getElementById("envDropdown");
+        const envContainer = document.getElementById("envContainer");
+
+        // Function to populate Fee Schedule options from backend
+        function loadFeeSchedules() {
+            fetch("/getFeeSchedules")
+                .then(response => response.json())
+                .then(data => {
+                    data.forEach(schedule => {
+                        let option = document.createElement("option");
+                        option.value = schedule;
+                        option.textContent = schedule;
+                        feeScheduleDropdown.appendChild(option);
+                    });
+                })
+                .catch(error => console.error("Error loading fee schedules:", error));
+        }
+
+        function handleMultiSelect(selectElement, chipContainer) {
+            selectElement.addEventListener("change", function() {
+                chipContainer.innerHTML = ""; // Clear previous chips
+
+                Array.from(selectElement.selectedOptions).forEach(option => {
+                    const chip = document.createElement("div");
+                    chip.classList.add("chip");
+                    chip.innerHTML = `
+                        <span>${option.text}</span>
+                        <button onclick="removeChip('${option.value}', '${selectElement.id}')">&times;</button>
+                    `;
+                    chipContainer.appendChild(chip);
+                });
+            });
+        }
+
+        function removeChip(value, selectId) {
+            const selectElement = document.getElementById(selectId);
+            for (let option of selectElement.options) {
+                if (option.value === value) {
+                    option.selected = false;
+                    break;
+                }
+            }
+            selectElement.dispatchEvent(new Event("change"));
+        }
+
+        // Load Fee Schedules on Page Load
+        loadFeeSchedules();
+
+        // Attach Multi-Select Functionality
+        handleMultiSelect(feeScheduleDropdown, feeScheduleContainer);
+        handleMultiSelect(envDropdown, envContainer);
+    });
+</script>
