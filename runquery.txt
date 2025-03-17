@@ -1,0 +1,94 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.sql.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
+
+public class FeeScheduleBackup {
+
+    private static final String DB_URL_TEMPLATE = "jdbc:sqlserver://your_server_name;databaseName=%s;integratedSecurity=true";
+    private static final String SQL_QUERY = "SELECT * FROM feeschedule_data WHERE feeschedule_id = ?";
+    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("MMddyyyyHHmmss");
+
+    public static void processFeeSchedules(List<String> feeScheduleIds, List<String> environments) {
+        ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+
+        feeScheduleIds.parallelStream().forEach(feeScheduleId ->
+                environments.forEach(env ->
+                        executor.submit(() -> fetchAndWriteData(feeScheduleId, env))
+                )
+        );
+
+        executor.shutdown();
+    }
+
+    private static void fetchAndWriteData(String feeScheduleId, String environment) {
+        String dbUrl = String.format(DB_URL_TEMPLATE, environment);
+        String timestamp = LocalDateTime.now().format(FORMATTER);
+        String fileName = String.format("%s_%s_Databackup_%s.xlsx", feeScheduleId, environment, timestamp);
+        Path outputPath = Paths.get("C:/Users/Reports/", fileName);
+
+        try (Connection conn = DriverManager.getConnection(dbUrl);
+             PreparedStatement pstmt = conn.prepareStatement(SQL_QUERY)) {
+
+            pstmt.setString(1, feeScheduleId);
+            try (ResultSet rs = pstmt.executeQuery()) {
+                writeToExcel(rs, outputPath);
+            }
+
+            System.out.println("Data backup completed: " + outputPath);
+
+        } catch (SQLException e) {
+            System.err.println("Database error for FeeSchedule: " + feeScheduleId + " in " + environment);
+            e.printStackTrace();
+        }
+    }
+
+    private static void writeToExcel(ResultSet resultSet, Path filePath) {
+        try (Workbook workbook = new XSSFWorkbook();
+             FileOutputStream fileOut = new FileOutputStream(filePath.toFile())) {
+
+            Sheet sheet = workbook.createSheet("Data");
+            writeResultSetToSheet(resultSet, sheet);
+            workbook.write(fileOut);
+
+        } catch (Exception e) {
+            System.err.println("Error writing Excel file: " + filePath);
+            e.printStackTrace();
+        }
+    }
+
+    private static void writeResultSetToSheet(ResultSet resultSet, Sheet sheet) throws SQLException {
+        ResultSetMetaData metaData = resultSet.getMetaData();
+        int columnCount = metaData.getColumnCount();
+
+        Row headerRow = sheet.createRow(0);
+        for (int col = 1; col <= columnCount; col++) {
+            headerRow.createCell(col - 1).setCellValue(metaData.getColumnName(col));
+        }
+
+        int rowNum = 1;
+        while (resultSet.next()) {
+            Row row = sheet.createRow(rowNum++);
+            for (int col = 1; col <= columnCount; col++) {
+                row.createCell(col - 1).setCellValue(resultSet.getString(col));
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        List<String> feeScheduleIds = List.of("FS123", "FS456", "FS789");
+        List<String> environments = List.of("SIT", "UAT", "TEST", "PROD");
+
+        processFeeSchedules(feeScheduleIds, environments);
+    }
+}
